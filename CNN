@@ -1,0 +1,257 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+
+
+
+
+
+import cv2
+from scipy.signal import convolve2d
+import numpy as np
+import time
+
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+from PIL import Image
+
+import torch
+import torch.nn as nn
+import torchvision
+
+import torchvision.models as models
+import torch.optim as optim
+import torchvision.transforms as transforms
+from torchvision import utils
+
+from torch.utils.data import DataLoader, random_split
+from torchvision import models, transforms
+from torch.utils.data import random_split, DataLoader
+import torch.nn.functional as F
+from torchvision import transforms
+from torchvision.transforms.functional import to_pil_image
+
+
+from keras.models import Sequential
+from keras.layers import Dense, Dropout
+
+from torch.utils.data import Dataset
+import torch
+import cv2
+import os
+from torchvision import transforms
+import torch.nn.functional as F
+
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.optim import lr_scheduler
+from sklearn.metrics import accuracy_score
+import pandas as pd
+
+
+class ModelDataset(Dataset):
+
+    def __init__(self, file_path):
+        """
+        Initialize the dataset with images and labels data.
+        """
+        self.file_path = file_path
+        # image data
+        self.image_files = []
+        for root, dirs, files in os.walk(file_path):
+            for file in files:
+                if file.endswith(".png"):
+                    self.image_files.append(os.path.join(root, file))
+
+        # labels data
+        self.labels = [int(os.path.basename(os.path.dirname(file))) for file in self.image_files]
+      
+
+    def __len__(self):
+        return len(self.image_files)
+
+
+    def __getitem__(self, idx):
+        image = cv2.imread(self.image_files[idx], cv2.IMREAD_GRAYSCALE)
+        image = torch.from_numpy(image).float().unsqueeze(0) 
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+      
+        return image, label
+
+
+train_transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((64, 64)), 
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5]),
+    transforms.RandomRotation(10)
+])
+
+
+
+full_dataset = ModelDataset("/kaggle/input/mashtots-dataset-v2/Train")
+
+dataset_size = len(full_dataset)
+train_size = int(0.8 * dataset_size)
+val_size = dataset_size - train_size
+
+train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+
+train_dataset.dataset.transform = train_transform
+print(len(train_dataset))
+batch_size = 32
+train_loader_augmented = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+
+for i in range(89, 91):
+    img, label = train_dataset[i]
+    print(f"Image Shape: {img.shape}, Label: {label}")
+    plt.imshow(img.squeeze(), cmap='gray')
+    plt.show()
+
+for inputs, labels in train_loader_augmented:
+    print(f"Batch Shape: {inputs.shape}, Labels: {labels}")
+    break
+
+for i in range(1):  
+    img, label = train_dataset[i]
+    transformed_img = train_transform(img)
+    print(f"Transformed Image Shape: {transformed_img.shape}, Label: {label}")
+    plt.imshow(transformed_img.squeeze(), cmap='gray')
+    plt.show()
+
+
+class CNNModel(nn.Module):
+    def __init__(self):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.fc1 = nn.Linear(128 * 8 * 8, 512)
+        self.dropout = nn.Dropout(p=0.5) 
+        self.fc2 = nn.Linear(512, 78)  
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        x = F.relu(self.conv3(x))
+        x = self.pool(x)
+        x = x.view(-1, 128 * 8 * 8)
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x) 
+        x = self.fc2(x)
+        return x
+
+
+
+# Hyperparameters
+model = CNNModel()
+num_epochs = 25 
+learning_rate = 0.001  
+
+# Loss and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+
+
+import torch
+from torch.optim import lr_scheduler
+from sklearn.metrics import accuracy_score
+
+lr_scheduler_step_size = 10
+lr_scheduler_gamma = 0.1
+
+scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_scheduler_step_size, gamma=lr_scheduler_gamma)
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    all_preds = []
+    all_labels = []
+
+    for inputs, labels in train_loader_augmented:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    
+        _, preds = torch.max(outputs, 1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+    scheduler.step()
+
+    accuracy = accuracy_score(all_labels, all_preds)
+    
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {running_loss/len(train_loader_augmented)}, Accuracy: {accuracy}")
+
+    # Validation
+    model.eval()
+    val_loss = 0.0
+    all_val_preds = []
+    all_val_labels = []
+
+    with torch.no_grad():
+        for val_inputs, val_labels in val_loader:
+            val_outputs = model(val_inputs)
+            val_loss += criterion(val_outputs, val_labels).item()
+
+            _, val_preds = torch.max(val_outputs, 1)
+            all_val_preds.extend(val_preds.cpu().numpy())
+            all_val_labels.extend(val_labels.cpu().numpy())
+
+    val_accuracy = accuracy_score(all_val_labels, all_val_preds)
+
+    print(f"Epoch {epoch + 1}/{num_epochs}, Training Loss: {running_loss/len(train_loader_augmented)}, Validation Loss: {val_loss/len(val_loader)}, Accuracy: {val_accuracy}")
+
+
+
+torch.save(model.state_dict(), 'armenian_letters_model.pth')
+
+test_data=pd.read_csv('/kaggle/input/mashtots-dataset-v2/new_test/new_test.csv')
+test_tensor = torch.tensor(test_data.values, dtype=torch.float)
+test_images = test_tensor.reshape((50000, 1, 64, 64))
+model.load_state_dict(torch.load('armenian_letters_model.pth'))
+
+def predict(model, test_batch):
+    model.eval()
+    with torch.no_grad():
+        data = test_batch
+        outputs = model(data)
+        _, predicted = torch.max(outputs.data, 1)
+    return predicted.cpu().numpy()
+
+preds = []
+for test_batch in torch.split(test_images, 32):
+  pred = predict(model, test_batch)
+  preds.extend(pred)
+    
+submission = pd.DataFrame({'Id': np.arange(1, len(pred) + 1), 'Category': predicted_classes})
+submission.to_csv('Mysubmission.csv', index=False)
+
+
+
